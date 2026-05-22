@@ -6,6 +6,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -42,40 +43,35 @@ fun SettingsScreen(
 
             SettingsGroup(title = "Security") {
                 SettingsItem(
-                    icon  = Icons.Default.Fingerprint,
-                    title = "Biometric Lock",
-                    subtitle = "Always enabled — required to open app",
-                    onClick = {}
+                    icon     = Icons.Default.Fingerprint,
+                    title    = "Biometric Lock",
+                    subtitle = "Always enabled — required to open app"
                 )
                 SettingsItem(
-                    icon  = Icons.Default.Lock,
-                    title = "Encryption",
-                    subtitle = "AES-256-GCM via Android Keystore (hardware-backed)",
-                    onClick = {}
+                    icon     = Icons.Default.Lock,
+                    title    = "Encryption",
+                    subtitle = "AES-256-GCM via Android Keystore (hardware-backed)"
                 )
             }
 
             SettingsGroup(title = "Algorithm") {
                 SettingsItem(
-                    icon  = Icons.Default.Psychology,
-                    title = "SRS Algorithm",
-                    subtitle = "FSRS-5 (state-of-the-art, trained on 400M+ reviews)",
-                    onClick = {}
+                    icon     = Icons.Default.Psychology,
+                    title    = "SRS Algorithm",
+                    subtitle = "FSRS-5 (state-of-the-art, trained on 400M+ reviews)"
                 )
                 SettingsItem(
-                    icon  = Icons.Default.TrackChanges,
-                    title = "Target Retention",
-                    subtitle = "90% recall probability (FSRS-5 default)",
-                    onClick = {}
+                    icon     = Icons.Default.TrackChanges,
+                    title    = "Target Retention",
+                    subtitle = "90% recall probability (FSRS-5 default)"
                 )
             }
 
             SettingsGroup(title = "About") {
                 SettingsItem(
-                    icon  = Icons.Default.Info,
-                    title = "Version",
-                    subtitle = "SRS Password Vault v1.0.0",
-                    onClick = {}
+                    icon     = Icons.Default.Info,
+                    title    = "Version",
+                    subtitle = "SRS Password Vault v1.0.0"
                 )
             }
         }
@@ -104,16 +100,13 @@ private fun SettingsItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: (() -> Unit)? = null   // null = info-only row, non-null = tappable
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
-            .run { if (onClick != {}) {
-                // Make clickable
-                this
-            } else this }
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(16.dp)
     ) {
         Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
@@ -123,7 +116,7 @@ private fun SettingsItem(
             Text(subtitle, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (onClick != {}) {
+        if (onClick != null) {
             Icon(Icons.Default.ChevronRight, null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }

@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.srspassword.app.data.*
 import com.srspassword.app.algorithm.CardState
 import com.srspassword.app.data.ReviewType
+import com.srspassword.app.encryption.VaultExporter.VaultPreview
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -143,41 +144,81 @@ class PasswordViewModel @Inject constructor(
 
     // ── Export / Import ───────────────────────────────────────────────────────
 
+    // Import/Export operation state
+    private val _importExportState = MutableStateFlow<ImportExportState>(ImportExportState.Idle)
+    val importExportState: StateFlow<ImportExportState> = _importExportState
+
+    private val _vaultPreview = MutableStateFlow<VaultPreview?>(null)
+    val vaultPreview: StateFlow<VaultPreview?> = _vaultPreview
+
+    /** Peek at vault file contents without decrypting — populates [vaultPreview]. */
+    fun loadVaultPreview(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val data = context.contentResolver.openInputStream(uri)
+                    ?.bufferedReader()?.readText() ?: return@launch
+                _vaultPreview.value = repository.previewVault(data)
+            } catch (_: Exception) {
+                _vaultPreview.value = null
+            }
+        }
+    }
+
     fun exportVault(passphrase: String, context: Context, uri: Uri) {
         viewModelScope.launch {
+            _importExportState.value = ImportExportState.Working("Encrypting vault…")
             try {
                 val data = repository.exportVault(passphrase)
                 context.contentResolver.openOutputStream(uri)?.use { stream ->
                     stream.write(data.toByteArray(Charsets.UTF_8))
                 }
-                _uiEvent.emit(UiEvent.ShowMessage("Vault exported successfully!"))
+                _importExportState.value = ImportExportState.ExportSuccess
             } catch (e: Exception) {
-                _uiEvent.emit(UiEvent.ShowMessage("Export failed: ${e.message}"))
+                _importExportState.value = ImportExportState.Failure("Export failed: ${e.message}")
             }
         }
     }
 
-    fun importVault(passphrase: String, context: Context, uri: Uri) {
+    fun importVault(
+        passphrase: String,
+        context: Context,
+        uri: Uri,
+        strategy: ConflictStrategy = ConflictStrategy.SKIP_DUPLICATES
+    ) {
         viewModelScope.launch {
+            _importExportState.value = ImportExportState.Working("Decrypting vault…")
             try {
                 val data = context.contentResolver.openInputStream(uri)
                     ?.bufferedReader()?.readText()
-                    ?: return@launch
+                    ?: run {
+                        _importExportState.value = ImportExportState.Failure("Could not read file")
+                        return@launch
+                    }
 
-                when (val result = repository.importVault(data, passphrase)) {
-                    is ImportResult.Success     ->
-                        _uiEvent.emit(UiEvent.ShowMessage("Imported ${result.count} cards!"))
+                _importExportState.value = ImportExportState.Working("Importing cards…")
+
+                when (val result = repository.importVault(data, passphrase, strategy)) {
+                    is ImportResult.Success ->
+                        _importExportState.value = ImportExportState.ImportSuccess(result)
                     is ImportResult.WrongPassphrase ->
-                        _uiEvent.emit(UiEvent.ShowMessage("Wrong passphrase — import failed."))
+                        _importExportState.value = ImportExportState.Failure(
+                            "Wrong passphrase — vault could not be decrypted."
+                        )
                     is ImportResult.Error ->
-                        _uiEvent.emit(UiEvent.ShowMessage("Import error: ${result.message}"))
+                        _importExportState.value = ImportExportState.Failure(
+                            "Import error: ${result.message}"
+                        )
                 }
             } catch (e: Exception) {
-                _uiEvent.emit(UiEvent.ShowMessage("Import failed: ${e.message}"))
+                _importExportState.value = ImportExportState.Failure("Import failed: ${e.message}")
             }
         }
     }
+
+    fun resetImportExportState() { _importExportState.value = ImportExportState.Idle }
 }
+
+// ── State models ──────────────────────────────────────────────────────────────
 
 data class ReviewSessionStats(
     val total: Int = 0,
@@ -189,4 +230,12 @@ data class ReviewSessionStats(
 sealed class UiEvent {
     data class ShowMessage(val message: String) : UiEvent()
     data class ReviewSessionComplete(val stats: ReviewSessionStats) : UiEvent()
+}
+
+sealed class ImportExportState {
+    object Idle : ImportExportState()
+    data class Working(val message: String) : ImportExportState()
+    object ExportSuccess : ImportExportState()
+    data class ImportSuccess(val result: ImportResult.Success) : ImportExportState()
+    data class Failure(val message: String) : ImportExportState()
 }

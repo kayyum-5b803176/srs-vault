@@ -5,6 +5,7 @@ import com.srspassword.app.algorithm.FSRS5Algorithm
 import com.srspassword.app.encryption.PasswordEncryptor
 import com.srspassword.app.encryption.VaultExporter
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -143,30 +144,65 @@ class PasswordRepository @Inject constructor(
 
     // ── Export / Import ──────────────────────────────────────────────────────
 
+    /** Export all cards to an encrypted binary blob (base64 string). */
     suspend fun exportVault(passphrase: String): String {
-        val cards = dao.getAllCards()
-        // One-shot collect for export
-        var result = ""
-        cards.collect { list ->
-            val dtos = list.map { it.toExportDto() }
-            result = exporter.exportVault(dtos, passphrase)
-        }
-        return result
+        // Use first() — never collect() on a Room Flow (hangs forever)
+        val dtos = dao.getAllCards().first().map { it.toExportDto() }
+        return exporter.exportVault(dtos, passphrase)
     }
 
-    suspend fun importVault(base64Data: String, passphrase: String): ImportResult {
+    /**
+     * Peek at vault metadata without decrypting.
+     * Safe to call with no passphrase — used to show import preview.
+     */
+    fun previewVault(base64Data: String) = exporter.previewVault(base64Data)
+
+    /**
+     * Decrypt and insert imported cards using the chosen [ConflictStrategy].
+     *
+     * SKIP_DUPLICATES — if a card with the same ID already exists, leave it untouched.
+     * REPLACE_ALL     — imported card always wins (overwrites existing).
+     * KEEP_NEWER      — keep whichever card has the more recent [PasswordCard.lastReviewedAt].
+     */
+    suspend fun importVault(
+        base64Data: String,
+        passphrase: String,
+        strategy: ConflictStrategy = ConflictStrategy.SKIP_DUPLICATES
+    ): ImportResult {
         val payload = exporter.importVault(base64Data, passphrase)
             ?: return ImportResult.WrongPassphrase
 
         return try {
-            val cards = payload.cards.map { it.toCard() }
-            dao.insertCards(cards)
-            ImportResult.Success(cards.size)
+            val incoming = payload.cards.map { it.toCard() }
+            var inserted = 0; var skipped = 0; var replaced = 0
+
+            incoming.forEach { incoming ->
+                val existing = dao.getCardById(incoming.id)
+                when {
+                    existing == null -> {
+                        dao.insertCard(incoming); inserted++
+                    }
+                    strategy == ConflictStrategy.REPLACE_ALL -> {
+                        dao.insertCard(incoming); replaced++   // REPLACE strategy in DAO
+                    }
+                    strategy == ConflictStrategy.KEEP_NEWER -> {
+                        val incomingTs = incoming.lastReviewedAt ?: 0L
+                        val existingTs = existing.lastReviewedAt ?: 0L
+                        if (incomingTs > existingTs) { dao.insertCard(incoming); replaced++ }
+                        else skipped++
+                    }
+                    else -> skipped++  // SKIP_DUPLICATES
+                }
+            }
+            ImportResult.Success(total = incoming.size, inserted = inserted,
+                replaced = replaced, skipped = skipped)
         } catch (e: Exception) {
             ImportResult.Error(e.message ?: "Unknown error")
         }
     }
 }
+
+enum class ConflictStrategy { SKIP_DUPLICATES, REPLACE_ALL, KEEP_NEWER }
 
 data class DashboardStats(
     val total: Int,
@@ -178,7 +214,9 @@ data class DashboardStats(
 )
 
 sealed class ImportResult {
-    data class Success(val count: Int) : ImportResult()
+    data class Success(
+        val total: Int, val inserted: Int, val replaced: Int, val skipped: Int
+    ) : ImportResult()
     object WrongPassphrase : ImportResult()
     data class Error(val message: String) : ImportResult()
 }
