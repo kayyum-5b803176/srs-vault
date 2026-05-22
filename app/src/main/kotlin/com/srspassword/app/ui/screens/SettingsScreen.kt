@@ -2,7 +2,9 @@ package com.srspassword.app.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -24,6 +26,10 @@ fun SettingsScreen(
 ) {
     val stealthMode by vm.stealthMode.collectAsState()
 
+    // Dialog state for algorithm info sheets
+    var showAlgorithmDialog  by remember { mutableStateOf(false) }
+    var showRetentionDialog  by remember { mutableStateOf(false) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -34,8 +40,13 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
+        // Fix 1: verticalScroll + fillMaxSize so content is always reachable
         Column(
-            modifier = Modifier.padding(padding).padding(16.dp),
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // ── Data ──────────────────────────────────────────────────────────
@@ -50,24 +61,23 @@ fun SettingsScreen(
 
             // ── Security ──────────────────────────────────────────────────────
             SettingsGroup(title = "Security") {
-                // Stealth mode toggle
                 SettingsToggleItem(
-                    icon     = Icons.Default.VisibilityOff,
-                    title    = "Stealth Mode",
-                    subtitle = if (stealthMode)
+                    icon            = Icons.Default.VisibilityOff,
+                    title           = "Stealth Mode",
+                    subtitle        = if (stealthMode)
                         "Screen capture blocked — other apps cannot record this window"
                     else
                         "Screen capture allowed — disable only for debugging",
-                    checked  = stealthMode,
+                    checked         = stealthMode,
                     onCheckedChange = vm::setStealthMode
                 )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                 SettingsItem(
                     icon     = Icons.Default.Fingerprint,
                     title    = "Biometric Lock",
                     subtitle = "Always enabled — required to open app"
                 )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                 SettingsItem(
                     icon     = Icons.Default.Lock,
                     title    = "Encryption",
@@ -76,17 +86,20 @@ fun SettingsScreen(
             }
 
             // ── Algorithm ─────────────────────────────────────────────────────
+            // Fix 2: wire onClick to open info dialogs
             SettingsGroup(title = "Algorithm") {
                 SettingsItem(
                     icon     = Icons.Default.Psychology,
                     title    = "SRS Algorithm",
-                    subtitle = "FSRS-5 (state-of-the-art, trained on 400M+ reviews)"
+                    subtitle = "FSRS-5 — tap to learn more",
+                    onClick  = { showAlgorithmDialog = true }
                 )
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                 SettingsItem(
                     icon     = Icons.Default.TrackChanges,
                     title    = "Target Retention",
-                    subtitle = "90% recall probability (FSRS-5 default)"
+                    subtitle = "90% recall probability — tap to learn more",
+                    onClick  = { showRetentionDialog = true }
                 )
             }
 
@@ -98,11 +111,87 @@ fun SettingsScreen(
                     subtitle = "SRS Password Vault v1.0.0"
                 )
             }
+
+            // Bottom padding so last card clears FABs / nav bar
+            Spacer(Modifier.height(24.dp))
         }
+    }
+
+    // ── FSRS-5 Algorithm info dialog ──────────────────────────────────────────
+    if (showAlgorithmDialog) {
+        AlertDialog(
+            onDismissRequest = { showAlgorithmDialog = false },
+            icon  = { Icon(Icons.Default.Psychology, null) },
+            title = { Text("FSRS-5 Algorithm") },
+            text  = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    InfoRow("What is it?",
+                        "Free Spaced Repetition Scheduler v5 — the most accurate open-source " +
+                        "memory scheduling algorithm, trained on 400M+ real review events.")
+                    InfoRow("Memory model",
+                        "R = (1 + t/S)^\u22120.5  where R = retrievability, t = days since " +
+                        "last review, S = stability (how long memory lasts).")
+                    InfoRow("Difficulty",
+                        "Each card tracks its own difficulty D (1\u201310). Hard cards get " +
+                        "shorter intervals; easy cards grow faster.")
+                    InfoRow("vs SM-2",
+                        "SM-2 (used by old Anki) uses a fixed ease factor. FSRS-5 models " +
+                        "the true forgetting curve and adapts per card — typically 20\u201340% " +
+                        "fewer reviews for the same retention.")
+                    InfoRow("Ratings",
+                        "Again / Hard / Good / Easy — each adjusts both stability and " +
+                        "difficulty for that card individually.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAlgorithmDialog = false }) { Text("Got it") }
+            }
+        )
+    }
+
+    // ── Target Retention info dialog ──────────────────────────────────────────
+    if (showRetentionDialog) {
+        AlertDialog(
+            onDismissRequest = { showRetentionDialog = false },
+            icon  = { Icon(Icons.Default.TrackChanges, null) },
+            title = { Text("Target Retention: 90%") },
+            text  = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    InfoRow("What it means",
+                        "When a card is shown for review, you have a 90% chance of " +
+                        "remembering it correctly. FSRS-5 calculates intervals specifically " +
+                        "to maintain this probability.")
+                    InfoRow("Why 90%?",
+                        "Research shows 90% is the sweet spot: high enough to feel fluent, " +
+                        "low enough that intervals stay practical (not too short, not too long).")
+                    InfoRow("Trade-off",
+                        "Higher retention (e.g. 95%) means more frequent reviews. " +
+                        "Lower retention (e.g. 80%) means fewer reviews but more forgetting. " +
+                        "90% balances effort and memory robustness.")
+                    InfoRow("For passwords",
+                        "90% is ideal — you will occasionally need a hint for harder " +
+                        "passwords, which is better than over-reviewing simple ones.")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRetentionDialog = false }) { Text("Got it") }
+            }
+        )
     }
 }
 
-// ── Composables ───────────────────────────────────────────────────────────────
+// ── Private composables ───────────────────────────────────────────────────────
+
+@Composable
+private fun InfoRow(label: String, body: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary)
+        Text(body, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
 
 @Composable
 private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> Unit) {
@@ -121,7 +210,6 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
     }
 }
 
-/** Tappable or info-only row. Pass onClick = null for info-only. */
 @Composable
 private fun SettingsItem(
     icon    : ImageVector,
@@ -150,7 +238,6 @@ private fun SettingsItem(
     }
 }
 
-/** Row with a Switch on the right side. */
 @Composable
 private fun SettingsToggleItem(
     icon           : ImageVector,
@@ -173,9 +260,6 @@ private fun SettingsToggleItem(
             Text(subtitle, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(
-            checked         = checked,
-            onCheckedChange = onCheckedChange
-        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
