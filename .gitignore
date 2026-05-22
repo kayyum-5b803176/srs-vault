@@ -1,0 +1,63 @@
+# Built outputs
+*.apk
+*.aab
+*.dex
+*.class
+bin/
+build/
+out/
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+
+# Local config (never commit — contains machine-specific paths & secrets)
+local.properties
+keystore.properties
+
+# Android Studio / IntelliJ IDEA
+*.iml
+*.iws
+*.ipr
+.idea/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/assetWizardSettings.xml
+.idea/dictionaries
+.idea/libraries
+.idea/caches
+.idea/modules.xml
+.idea/navEditor.xml
+.idea/deploymentTargetDropDown.xml
+.DS_Store
+
+# Generated source files
+app/src/main/assets/
+app/build/
+
+# Proguard
+proguard/
+*.pro.map
+
+# Kotlin
+*.kotlin_module
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Signing keystores — NEVER commit
+*.jks
+*.keystore
+
+# Lint reports
+lint-results*.html
+lint-results*.xml
+
+# Test reports
+test-results/
+jacoco/
