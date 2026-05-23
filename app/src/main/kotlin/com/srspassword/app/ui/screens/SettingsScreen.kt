@@ -17,18 +17,36 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.srspassword.app.viewmodel.SettingsViewModel
 
+// ── Auto-lock options ─────────────────────────────────────────────────────────
+
+private val AUTO_LOCK_OPTIONS = listOf(
+    0     to "Never",
+    1     to "1 minute",
+    5     to "5 minutes",
+    15    to "15 minutes",
+    30    to "30 minutes",
+    60    to "1 hour",
+    240   to "4 hours",
+    1440  to "1 day"
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onImportExport: () -> Unit,
+    onSetupPin    : () -> Unit,   // navigate to PinSetupScreen
     onBack        : () -> Unit,
     vm            : SettingsViewModel = hiltViewModel()
 ) {
-    val stealthMode by vm.stealthMode.collectAsState()
+    val stealthMode     by vm.stealthMode.collectAsState()
+    val isPinSet        by vm.isPinSet.collectAsState()
+    val autoLockMinutes by vm.autoLockMinutes.collectAsState()
 
-    // Dialog state for algorithm info sheets
+    // Dialog states
     var showAlgorithmDialog  by remember { mutableStateOf(false) }
     var showRetentionDialog  by remember { mutableStateOf(false) }
+    var showAutoLockDialog   by remember { mutableStateOf(false) }
+    var showRemovePinDialog  by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -40,7 +58,6 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
-        // Fix 1: verticalScroll + fillMaxSize so content is always reachable
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -49,6 +66,7 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+
             // ── Data ──────────────────────────────────────────────────────────
             SettingsGroup(title = "Data") {
                 SettingsItem(
@@ -71,13 +89,56 @@ fun SettingsScreen(
                     checked         = stealthMode,
                     onCheckedChange = vm::setStealthMode
                 )
+
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                // Biometric lock info
                 SettingsItem(
                     icon     = Icons.Default.Fingerprint,
                     title    = "Biometric Lock",
                     subtitle = "Always enabled — required to open app"
                 )
+
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                // Master PIN
+                SettingsItem(
+                    icon     = Icons.Default.Pin,
+                    title    = "Master PIN",
+                    subtitle = if (isPinSet)
+                        "PIN set — tap to change"
+                    else
+                        "Not set — tap to create a fallback PIN",
+                    onClick  = onSetupPin
+                )
+
+                // Auto-lock (only visible when PIN is set)
+                if (isPinSet) {
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    val lockLabel = AUTO_LOCK_OPTIONS
+                        .firstOrNull { it.first == autoLockMinutes }?.second ?: "Custom"
+
+                    SettingsItem(
+                        icon     = Icons.Default.Timer,
+                        title    = "Auto-Lock",
+                        subtitle = "Lock after: $lockLabel",
+                        onClick  = { showAutoLockDialog = true }
+                    )
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                    // Remove PIN
+                    SettingsItem(
+                        icon     = Icons.Default.LockOpen,
+                        title    = "Remove Master PIN",
+                        subtitle = "Disables auto-lock and PIN fallback",
+                        onClick  = { showRemovePinDialog = true }
+                    )
+                }
+
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
                 SettingsItem(
                     icon     = Icons.Default.Lock,
                     title    = "Encryption",
@@ -86,7 +147,6 @@ fun SettingsScreen(
             }
 
             // ── Algorithm ─────────────────────────────────────────────────────
-            // Fix 2: wire onClick to open info dialogs
             SettingsGroup(title = "Algorithm") {
                 SettingsItem(
                     icon     = Icons.Default.Psychology,
@@ -112,9 +172,82 @@ fun SettingsScreen(
                 )
             }
 
-            // Bottom padding so last card clears FABs / nav bar
             Spacer(Modifier.height(24.dp))
         }
+    }
+
+    // ── Auto-lock picker dialog ───────────────────────────────────────────────
+    if (showAutoLockDialog) {
+        AlertDialog(
+            onDismissRequest = { showAutoLockDialog = false },
+            icon  = { Icon(Icons.Default.Timer, null) },
+            title = { Text("Auto-Lock Interval") },
+            text  = {
+                Column {
+                    Text(
+                        "Lock the app with your master PIN after this period of inactivity.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                    AUTO_LOCK_OPTIONS.forEach { (minutes, label) ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.setAutoLockMinutes(minutes)
+                                    showAutoLockDialog = false
+                                }
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = autoLockMinutes == minutes,
+                                onClick  = {
+                                    vm.setAutoLockMinutes(minutes)
+                                    showAutoLockDialog = false
+                                }
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAutoLockDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // ── Remove PIN confirmation dialog ────────────────────────────────────────
+    if (showRemovePinDialog) {
+        AlertDialog(
+            onDismissRequest = { showRemovePinDialog = false },
+            icon  = { Icon(Icons.Default.LockOpen, null) },
+            title = { Text("Remove Master PIN?") },
+            text  = {
+                Text(
+                    "This will remove your fallback PIN and disable auto-lock. " +
+                    "If biometrics change, you will need to set up a new PIN to regain access.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.clearPin()
+                        showRemovePinDialog = false
+                    },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text("Remove PIN") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemovePinDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     // ── FSRS-5 Algorithm info dialog ──────────────────────────────────────────
@@ -185,11 +318,17 @@ fun SettingsScreen(
 @Composable
 private fun InfoRow(label: String, body: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium,
+        Text(
+            label,
+            style      = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary)
-        Text(body, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+            color      = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            body,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -228,12 +367,18 @@ private fun SettingsItem(
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         if (onClick != null) {
-            Icon(Icons.Default.ChevronRight, null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                Icons.Default.ChevronRight,
+                null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -257,8 +402,11 @@ private fun SettingsToggleItem(
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
