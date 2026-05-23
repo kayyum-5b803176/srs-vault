@@ -15,6 +15,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.srspassword.app.ui.components.PinDots
 import com.srspassword.app.ui.components.ScrambledNumPad
+import kotlin.math.roundToInt
 
 private enum class SetupStep { CHOOSE_LENGTH, ENTER_PIN, CONFIRM_PIN }
 
@@ -156,27 +157,42 @@ fun PinSetupScreen(
                                 textAlign = TextAlign.Center
                             )
 
-                            // Length chips: 4, 6, 8, 10, 12
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier              = Modifier.fillMaxWidth(),
-                                verticalAlignment     = Alignment.CenterVertically
+                            // ── PIN length slider (4 – 12, integer steps) ─────
+                            Column(
+                                modifier            = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                listOf(4, 6, 8, 10, 12).forEach { len ->
-                                    FilterChip(
-                                        selected = pinLength == len,
-                                        onClick  = { pinLength = len },
-                                        label    = { Text("$len") },
-                                        modifier = Modifier.weight(1f)
+                                Row(
+                                    modifier              = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "4",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "12",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                // steps = (12 - 4) - 1 = 7 discrete stops between endpoints
+                                Slider(
+                                    value         = pinLength.toFloat(),
+                                    onValueChange = { pinLength = it.roundToInt() },
+                                    valueRange    = 4f..12f,
+                                    steps         = 7,
+                                    modifier      = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    "$pinLength digits",
+                                    style      = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color      = MaterialTheme.colorScheme.primary
+                                )
                             }
-
-                            Text(
-                                "Selected: $pinLength digits",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
 
                             Button(
                                 onClick  = { step = SetupStep.ENTER_PIN },

@@ -112,6 +112,17 @@ fun SettingsScreen(
                     onClick  = onSetupPin
                 )
 
+                // Remove PIN (only visible when PIN is set, sits directly below Master PIN)
+                if (isPinSet) {
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                    SettingsItem(
+                        icon     = Icons.Default.LockOpen,
+                        title    = "Remove PIN",
+                        subtitle = "Disables auto-lock and PIN fallback",
+                        onClick  = { showRemovePinDialog = true }
+                    )
+                }
+
                 // Auto-lock (only visible when PIN is set)
                 if (isPinSet) {
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
@@ -126,15 +137,6 @@ fun SettingsScreen(
                         onClick  = { showAutoLockDialog = true }
                     )
 
-                    HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-
-                    // Remove PIN
-                    SettingsItem(
-                        icon     = Icons.Default.LockOpen,
-                        title    = "Remove Master PIN",
-                        subtitle = "Disables auto-lock and PIN fallback",
-                        onClick  = { showRemovePinDialog = true }
-                    )
                 }
 
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
