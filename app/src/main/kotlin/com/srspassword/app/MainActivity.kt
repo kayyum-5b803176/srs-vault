@@ -150,10 +150,10 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Re-check auto-lock when the app returns to foreground
-        if (authScreen.value == AuthScreen.App) {
-            checkAutoLockOnResume()
-        }
+        // Always run the security check on every foreground event, not just when
+        // the vault is open. If the app was sitting on the BiometricLockScreen while
+        // the user enrolled a new finger, we must intercept before any tap fires.
+        checkSecurityOnResume()
     }
 
     override fun onPause() {
@@ -206,23 +206,47 @@ class MainActivity : FragmentActivity() {
     }
 
     /**
-     * Re-evaluates the auto-lock condition when the app comes back to foreground.
-     * Only runs when the user is already inside the app (authenticated).
+     * Security gate called on every [onResume], regardless of current auth state.
+     *
+     * Two independent checks, in priority order:
+     *
+     *  1. Biometric-enrollment change — applies in ALL auth states (Biometric,
+     *     App, or any other). If the KeyStore key is invalidated we redirect to
+     *     PIN before the biometric prompt can even appear on screen.
+     *
+     *  2. Auto-lock timeout — only meaningful when the vault is already open
+     *     (AuthScreen.App); no point locking if not yet authenticated.
+     *
+     * Note: showBiometricPrompt() has its own synchronous guard for the same
+     * biometric check. This coroutine covers the background path; the synchronous
+     * guard in showBiometricPrompt() closes the tap-before-coroutine-lands gap.
      */
-    private fun checkAutoLockOnResume() {
+    private fun checkSecurityOnResume() {
         lifecycleScope.launch {
-            val pinHash         = appPreferences.pinHash.first()
-            val hasPinSet       = !pinHash.isNullOrEmpty()
-            if (!hasPinSet) return@launch
+            val pinHash   = appPreferences.pinHash.first()
+            val hasPinSet = !pinHash.isNullOrEmpty()
 
-            val autoLockMinutes = appPreferences.autoLockMinutes.first()
-            val lastAccess      = appPreferences.lastAccessTime.first()
+            // ── Priority 1: biometric-enrollment change (all states) ──────────
+            if (pinManager.isBiometricKeyInvalidated()) {
+                authScreen.value = if (hasPinSet) {
+                    AuthScreen.PinUnlock(PinUnlockReason.BIOMETRIC_CHANGED)
+                } else {
+                    AuthScreen.ForcedPinSetup
+                }
+                return@launch
+            }
 
-            if (autoLockMinutes > 0) {
-                val idleMillis  = System.currentTimeMillis() - lastAccess
-                val limitMillis = autoLockMinutes * 60_000L
-                if (idleMillis > limitMillis) {
-                    authScreen.value = AuthScreen.PinUnlock(PinUnlockReason.AUTO_LOCK_TIMEOUT)
+            // ── Priority 2: auto-lock timeout (only when vault is open) ───────
+            if (authScreen.value == AuthScreen.App && hasPinSet) {
+                val autoLockMinutes = appPreferences.autoLockMinutes.first()
+                val lastAccess      = appPreferences.lastAccessTime.first()
+
+                if (autoLockMinutes > 0) {
+                    val idleMillis  = System.currentTimeMillis() - lastAccess
+                    val limitMillis = autoLockMinutes * 60_000L
+                    if (idleMillis > limitMillis) {
+                        authScreen.value = AuthScreen.PinUnlock(PinUnlockReason.AUTO_LOCK_TIMEOUT)
+                    }
                 }
             }
         }
@@ -269,12 +293,36 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun showBiometricPrompt() {
+        // ── Synchronous biometric-integrity gate ──────────────────────────────
+        // This MUST run before the BiometricPrompt is constructed. The coroutine
+        // in checkSecurityOnResume() has a tiny gap between onResume() returning
+        // and the state update landing — tapping "Authenticate" in that window
+        // would bypass the check. Checking here, on the call stack that leads
+        // directly to the prompt, is the only fully reliable interception point.
+        val pinHash   = runBlocking { appPreferences.pinHash.first() }
+        val hasPinSet = !pinHash.isNullOrEmpty()
+
+        if (pinManager.isBiometricKeyInvalidated()) {
+            authScreen.value = if (hasPinSet) {
+                AuthScreen.PinUnlock(PinUnlockReason.BIOMETRIC_CHANGED)
+            } else {
+                // No master PIN exists — force the user to create one before the
+                // app can be unlocked. Without this, a biometric change on a
+                // PIN-less device would be silently accepted.
+                AuthScreen.ForcedPinSetup
+            }
+            return   // ← abort: never show the biometric prompt
+        }
+
         val executor = ContextCompat.getMainExecutor(this)
 
         val callback = object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 super.onAuthenticationSucceeded(result)
-                onAuthSuccess(rebindBiometricKey = false)
+                // Rebind the KeyStore key so the current enrollment becomes the new
+                // baseline. Any future enrollment change will then invalidate this key
+                // and trigger PIN verification on the next resume or cold start.
+                onAuthSuccess(rebindBiometricKey = true)
             }
             override fun onAuthenticationFailed() {
                 super.onAuthenticationFailed()
